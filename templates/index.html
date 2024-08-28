@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image Viewer</title>
+    <style>
+        body { margin: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+    let scene, camera, renderer, plane, material, texture;
+    let images = [];
+    let isTouchActive = false;
+    let isMouseMoveActive = true;
+    const autoMoveSpeed = 0.1;
+
+    const imageFilenames = {{ image_filenames|tojson }};
+    const datasetPath = `static/data/{{ dataset }}/`;
+    const dragSensitivity = {{ drag_sensitivity }};
+    let currentImageIndex = {{ start_index }};
+
+    console.log(imageFilenames);
+
+    function preloadImages() {
+        if (!Array.isArray(imageFilenames) || imageFilenames.length === 0) {
+            console.error("No images found or dataset not specified.");
+            return;
+        }
+
+        images = new Array(imageFilenames.length);
+        let loadedImages = 0;
+
+        imageFilenames.forEach((filename, index) => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = `${datasetPath}${filename}`;
+            img.onload = () => {
+                images[index] = { element: img, name: filename };
+                loadedImages++;
+                if (index === 0) { 
+                    adjustGeometry(img.width, img.height);
+                }
+                if (loadedImages === imageFilenames.length) {
+                    displayFirstImage(); 
+                    startRendering();
+                }
+            };
+        });
+    }
+
+    function adjustGeometry(width, height) {
+        const aspect = width / height;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        let planeWidth, planeHeight;
+
+        if (viewportWidth / viewportHeight > aspect) {
+            planeHeight = viewportHeight;
+            planeWidth = planeHeight * aspect;
+        } else {
+            planeWidth = viewportWidth;
+            planeHeight = planeWidth / aspect;
+        }
+
+        if (plane) {
+            scene.remove(plane);
+            plane.geometry.dispose();
+        }
+
+        const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+        plane = new THREE.Mesh(geometry, material);
+        scene.add(plane);
+
+        const distance = (planeHeight / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+        camera.position.z = distance;
+        camera.updateProjectionMatrix();
+    }
+
+    function displayFirstImage() {
+        if (images.length > 0 && images[currentImageIndex]?.element.complete) {
+            texture.image = images[currentImageIndex].element;
+            texture.needsUpdate = true;
+        }
+    }
+
+    function startRendering() {
+        const canvas = renderer.domElement;
+
+        canvas.addEventListener('mousemove', (event) => {
+            if (isMouseMoveActive && !isTouchActive && images.length > 0) {
+                const mouseX = event.clientX;
+                const fraction = 1 - (mouseX / window.innerWidth);
+                const totalImages = images.length;
+                const newIndex = Math.floor(fraction * totalImages);
+
+                if (newIndex !== currentImageIndex) {
+                    currentImageIndex = newIndex;
+                    if (images[currentImageIndex].element.complete) {
+                        texture.image = images[currentImageIndex].element;
+                        texture.needsUpdate = true;
+                    }
+                }
+            }
+        });
+
+        canvas.addEventListener('touchstart', (event) => {
+            isTouchActive = true;
+            isMouseMoveActive = false;
+        });
+
+        canvas.addEventListener('touchmove', (event) => {
+            if (isTouchActive && images.length > 0 && event.touches.length > 0) {
+                const touchX = event.touches[0].clientX;
+                const fraction = 1 - (touchX / window.innerWidth);
+                const totalImages = images.length;
+                const newIndex = Math.floor(fraction * totalImages);
+
+                if (newIndex !== currentImageIndex) {
+                    currentImageIndex = newIndex;
+                    if (images[currentImageIndex].element.complete) {
+                        texture.image = images[currentImageIndex].element;
+                        texture.needsUpdate = true;
+                    }
+                }
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isTouchActive = false;
+            isMouseMoveActive = true;
+        });
+
+        animate();
+    }
+
+    function init() {
+        scene = new THREE.Scene();
+
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        texture = new THREE.Texture();
+        material = new THREE.MeshBasicMaterial({ map: texture });
+        plane = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), material);
+        scene.add(plane);
+
+        window.addEventListener('resize', onWindowResize, false);
+    }
+
+    function onWindowResize() {
+        if (images.length > 0) {
+            adjustGeometry(images[currentImageIndex]?.element.width, images[currentImageIndex]?.element.height);
+        }
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if (images.length > 0 && images[currentImageIndex]?.element.complete) {
+            renderer.render(scene, camera);
+        }
+    }
+
+    window.onload = () => {
+        init();
+        preloadImages();
+    };
+</script>
+</body>
+</html>
